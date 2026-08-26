@@ -214,94 +214,119 @@ const MOCK_COMMENTS = [
 ];
 
 // 3. Database Seeding Implementation
+let seedingPromise = null;
+
 export async function seedDatabase() {
-  const userCount = await db.users.count();
-  if (userCount > 0) {
-    // Already populated, skip seeding
-    return;
+  if (seedingPromise) {
+    return seedingPromise;
   }
 
-  console.log('Seeding Database...');
-  
-  // Add Users
-  const userIds = [];
-  for (const user of MOCK_USERS) {
-    const id = await db.users.add(user);
-    userIds.push(id);
-  }
-  
-  // Add Articles
-  for (const article of MOCK_ARTICLES) {
-    await db.articles.add(article);
-  }
-
-  // Add Tickets (adjust requesterId and assigneeId mapping)
-  // userIds: [1, 2, 3, 4, 5] -> user1, user2, tech1, tech2, admin
-  const seededTickets = MOCK_TICKETS.map(ticket => {
-    return {
-      ...ticket,
-      requesterId: ticket.requesterId === 1 ? userIds[0] : userIds[1],
-      assigneeId: ticket.assigneeId === null ? null : (ticket.assigneeId === 3 ? userIds[2] : userIds[3])
-    };
-  });
-  
-  const ticketIds = [];
-  for (const ticket of seededTickets) {
-    const id = await db.tickets.add(ticket);
-    ticketIds.push(id);
-  }
-
-  // Add Comments (map senderId to correct ID, map ticketId to correct ticket ID)
-  // ticketIds list: [1, 2, 3, 4] maps 1-1 with MOCK_TICKETS
-  const seededComments = MOCK_COMMENTS.map(comment => {
-    let senderId;
-    if (comment.senderId === 1) senderId = userIds[0];
-    else if (comment.senderId === 2) senderId = userIds[1];
-    else if (comment.senderId === 3) senderId = userIds[2];
-    else if (comment.senderId === 4) senderId = userIds[3];
+  seedingPromise = (async () => {
+    const userCount = await db.users.count();
     
-    return {
-      ...comment,
-      ticketId: ticketIds[comment.ticketId - 1], // map to the created ticket ID
-      senderId
-    };
-  });
+    if (userCount > 0) {
+      // Check for duplicate usernames to clean up legacy duplicates from development
+      const allUsers = await db.users.toArray();
+      const usernames = allUsers.map(u => u.username);
+      const hasDuplicates = usernames.length !== new Set(usernames).size;
 
-  for (const comment of seededComments) {
-    await db.comments.add(comment);
-  }
+      if (!hasDuplicates) {
+        // No duplicates, skip seeding
+        return;
+      }
 
-  // Add Initial Notifications for Demo
-  const notifications = [
-    {
-      userId: userIds[0], // สมชาย
-      message: 'บัญชีระบบ ERP โดนล็อกชั่วคราว ล็อกอินไม่ได้ ได้รับการเปลี่ยนสถานะเป็น Closed',
-      type: 'status_change',
-      isRead: 1,
-      ticketId: ticketIds[3],
-      createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000)
-    },
-    {
-      userId: userIds[1], // สมศรี
-      message: 'หน้าจอคอมพิวเตอร์ดับและเปิดไม่ติด ได้รับการเปลี่ยนสถานะเป็น In Progress',
-      type: 'status_change',
-      isRead: 0,
-      ticketId: ticketIds[1],
-      createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000)
-    },
-    {
-      userId: userIds[2], // วิชัย
-      message: 'ตั๋วปัญหาใหม่: ต่อเน็ตบริษัทไม่ได้ สัญญาณขึ้น No Internet Access ได้รับการลงทะเบียนในระบบ',
-      type: 'new_ticket',
-      isRead: 0,
-      ticketId: ticketIds[0],
-      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000)
+      console.log('Duplicate users detected in IndexedDB. Clearing and re-seeding...');
+      await db.users.clear();
+      await db.tickets.clear();
+      await db.comments.clear();
+      await db.notifications.clear();
+      await db.articles.clear();
     }
-  ];
 
-  for (const notification of notifications) {
-    await db.notifications.add(notification);
-  }
+    console.log('Seeding Database...');
+    
+    // Add Users
+    const userIds = [];
+    for (const user of MOCK_USERS) {
+      const id = await db.users.add(user);
+      userIds.push(id);
+    }
+    
+    // Add Articles
+    for (const article of MOCK_ARTICLES) {
+      await db.articles.add(article);
+    }
 
-  console.log('Database Seeding Complete!');
+    // Add Tickets (adjust requesterId and assigneeId mapping)
+    // userIds: [1, 2, 3, 4, 5] -> user1, user2, tech1, tech2, admin
+    const seededTickets = MOCK_TICKETS.map(ticket => {
+      return {
+        ...ticket,
+        requesterId: ticket.requesterId === 1 ? userIds[0] : userIds[1],
+        assigneeId: ticket.assigneeId === null ? null : (ticket.assigneeId === 3 ? userIds[2] : userIds[3])
+      };
+    });
+    
+    const ticketIds = [];
+    for (const ticket of seededTickets) {
+      const id = await db.tickets.add(ticket);
+      ticketIds.push(id);
+    }
+
+    // Add Comments (map senderId to correct ID, map ticketId to correct ticket ID)
+    // ticketIds list: [1, 2, 3, 4] maps 1-1 with MOCK_TICKETS
+    const seededComments = MOCK_COMMENTS.map(comment => {
+      let senderId;
+      if (comment.senderId === 1) senderId = userIds[0];
+      else if (comment.senderId === 2) senderId = userIds[1];
+      else if (comment.senderId === 3) senderId = userIds[2];
+      else if (comment.senderId === 4) senderId = userIds[3];
+      
+      return {
+        ...comment,
+        ticketId: ticketIds[comment.ticketId - 1], // map to the created ticket ID
+        senderId
+      };
+    });
+
+    for (const comment of seededComments) {
+      await db.comments.add(comment);
+    }
+
+    // Add Initial Notifications for Demo
+    const notifications = [
+      {
+        userId: userIds[0], // สมชาย
+        message: 'บัญชีระบบ ERP โดนล็อกชั่วคราว ล็อกอินไม่ได้ ได้รับการเปลี่ยนสถานะเป็น Closed',
+        type: 'status_change',
+        isRead: 1,
+        ticketId: ticketIds[3],
+        createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000)
+      },
+      {
+        userId: userIds[1], // สมศรี
+        message: 'หน้าจอคอมพิวเตอร์ดับและเปิดไม่ติด ได้รับการเปลี่ยนสถานะเป็น In Progress',
+        type: 'status_change',
+        isRead: 0,
+        ticketId: ticketIds[1],
+        createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000)
+      },
+      {
+        userId: userIds[2], // วิชัย
+        message: 'ตั๋วปัญหาใหม่: ต่อเน็ตบริษัทไม่ได้ สัญญาณขึ้น No Internet Access ได้รับการลงทะเบียนในระบบ',
+        type: 'new_ticket',
+        isRead: 0,
+        ticketId: ticketIds[0],
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000)
+      }
+    ];
+
+    for (const notification of notifications) {
+      await db.notifications.add(notification);
+    }
+
+    console.log('Database Seeding Complete!');
+  })();
+
+  return seedingPromise;
 }
